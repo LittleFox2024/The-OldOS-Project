@@ -1,0 +1,74 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0'
+          bundler-cache: true
+          working-directory: ./OldOS
+      
+      - name: Install dependencies
+        working-directory: ./OldOS
+        run: |
+          bundle install
+          pod install || true
+      
+      - name: Build IPA with Fastlane
+        working-directory: ./OldOS
+        run: |
+          bundle exec fastlane build
+        env:
+          CI: true
+      
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OldOS.ipa
+          path: ./OldOS/build/*.ipa
+          retention-days: 30
+      
+      - name: Create Release (on push to master)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Build ${{ github.run_number }}
+          body: |
+            iOS IPA build artifact available for download.
+            
+            **Build Details:**
+            - Commit: ${{ github.sha }}
+            - Run: ${{ github.run_number }}
+          draft: false
+          prerelease: false
+      
+      - name: Upload IPA to Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./OldOS/build/*.ipa
+          asset_name: OldOS.ipa
+          asset_content_type: application/octet-stream
